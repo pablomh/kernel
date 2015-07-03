@@ -405,7 +405,7 @@ static struct mdp_pp_feature_ops *pp_ops;
 static DEFINE_MUTEX(mdss_pp_mutex);
 static struct mdss_pp_res_type *mdss_pp_res;
 
-static u32 pp_hist_read(char __iomem *v_addr,
+static u32 pp_hist_read(char __iomem *addr,
 				struct pp_hist_col_info *hist_info);
 static int pp_hist_setup(u32 *op, u32 block, struct mdss_mdp_mixer *mix,
 				struct pp_sts_type *pp_sts);
@@ -1093,8 +1093,7 @@ static int pp_vig_pipe_setup(struct mdss_mdp_pipe *pipe, u32 *op)
 		flags = PP_FLAGS_DIRTY_ENHIST;
 		if (!pp_ops[HIST_LUT].pp_set_config) {
 			pp_enhist_config(flags,
-				pipe->base + MDSS_MDP_REG_VIG_HIST_LUT_BASE,
-				&pipe->pp_res.pp_sts,
+				pipe->base, &pipe->pp_res.pp_sts,
 				&pipe->pp_cfg.hist_lut_cfg);
 			if ((pipe->pp_res.pp_sts.enhist_sts & PP_STS_ENABLE) &&
 			    !(pipe->pp_res.pp_sts.pa_sts & PP_STS_ENABLE)) {
@@ -2315,9 +2314,7 @@ static int pp_dspp_setup(u32 disp_num, struct mdss_mdp_mixer *mixer)
 
 	if (flags & PP_FLAGS_DIRTY_ENHIST) {
 		if (!pp_ops[HIST_LUT].pp_set_config) {
-			pp_enhist_config(flags,
-				base + MDSS_MDP_REG_DSPP_HIST_LUT_BASE,
-				pp_sts,
+			pp_enhist_config(flags, base, pp_sts,
 				&mdss_pp_res->enhist_disp_cfg[disp_num]);
 
 			if ((pp_sts->enhist_sts & PP_STS_ENABLE) &&
@@ -2869,7 +2866,7 @@ int mdss_mdp_pp_init(struct device *dev)
 				} else {
 					hist[i].base = i < mdata->ndspp ?
 						mdss_mdp_get_dspp_addr_off(i) +
-						MDSS_MDP_REG_DSPP_HIST_CTL_BASE
+						MDSS_MDP_REG_DSPP_HIST_CTL_OFF
 						: NULL;
 				}
 			}
@@ -2899,7 +2896,7 @@ int mdss_mdp_pp_init(struct device *dev)
 					ctl_off;
 			} else {
 				vig[i].pp_res.hist.base = vig[i].base +
-					MDSS_MDP_REG_VIG_HIST_CTL_BASE;
+					MDSS_MDP_REG_VIG_HIST_CTL_OFF;
 			}
 		}
 	}
@@ -3973,13 +3970,26 @@ static void pp_update_hist_lut(char __iomem *addr,
 				struct mdp_hist_lut_data *cfg)
 {
 	int i;
-	for (i = 0; i < ENHIST_LUT_ENTRIES; i++)
-		writel_relaxed(cfg->data[i], addr);
+	char *offset_data, *offset_swap;
+	u32 data;
+
+	if (PP_LOCAT(cfg->block) == MDSS_PP_DSPP_CFG) {
+		offset_data = addr + MDSS_MDP_REG_DSPP_HIST_LUT_BASE;
+		offset_swap = addr + MDSS_MDP_REG_DSPP_HIST_LUT_SWAP;
+	} else {
+		offset_data = addr + MDSS_MDP_REG_VIG_HIST_LUT_BASE;
+		offset_swap = addr + MDSS_MDP_REG_VIG_HIST_LUT_SWAP;
+	}
+
+	for (i = 0; i < (ENHIST_LUT_ENTRIES / 2); i++) {
+		data = cfg->data[2 * i] & 0xFF;
+		data |= (cfg->data[2 * i + 1] & 0xFF) << 16;
+		writel_relaxed(data, offset_data);
+		offset_data += 4;
+	}
+
 	/* swap */
-	if (PP_LOCAT(cfg->block) == MDSS_PP_DSPP_CFG)
-		writel_relaxed(1, addr + 4);
-	else
-		writel_relaxed(1, addr + 16);
+	writel_relaxed(1, offset_swap);
 }
 
 int mdss_mdp_argc_config(struct msm_fb_data_type *mfd,
@@ -4614,23 +4624,22 @@ gamut_config_exit:
 	return ret;
 }
 
-static u32 pp_hist_read(char __iomem *v_addr,
+static u32 pp_hist_read(char __iomem *addr,
 				struct pp_hist_col_info *hist_info)
 {
-	int i, i_start;
+	int i;
+	char *offset_data;
 	u32 sum = 0;
-	u32 data;
-	data = readl_relaxed(v_addr);
-	i_start = data >> 24;
-	hist_info->data[i_start] = data & 0xFFFFFF;
-	sum += hist_info->data[i_start];
-	for (i = i_start + 1; i < HIST_V_SIZE; i++) {
-		hist_info->data[i] = readl_relaxed(v_addr) & 0xFFFFFF;
+
+	if (PP_LOCAT(hist_info->disp_block) == MDSS_PP_DSPP_CFG)
+		offset_data = addr + MDSS_MDP_REG_DSPP_HIST_DATA_BASE;
+	else
+		offset_data = addr + MDSS_MDP_REG_VIG_HIST_DATA_BASE;
+
+	for (i = 0; i < HIST_V_SIZE; i++) {
+		hist_info->data[i] = readl_relaxed(offset_data) & 0xFFFFFF;
 		sum += hist_info->data[i];
-	}
-	for (i = 0; i < i_start; i++) {
-		hist_info->data[i] = readl_relaxed(v_addr) & 0xFFFFFF;
-		sum += hist_info->data[i];
+		offset_data += 4;
 	}
 	hist_info->hist_cnt_read++;
 	return sum;
@@ -5024,12 +5033,11 @@ exit:
 
 static int pp_hist_collect(struct mdp_histogram_data *hist,
 				struct pp_hist_col_info *hist_info,
-				char __iomem *ctl_base, u32 expect_sum,
+				char __iomem *base, u32 expect_sum,
 				u32 block)
 {
 	int ret = 0;
-	u32 sum;
-	char __iomem *v_base = NULL;
+	u32 sum, ctl_off;
 	unsigned long flag;
 	struct mdss_data_type *mdata = mdss_mdp_get_mdata();
 
@@ -5037,6 +5045,12 @@ static int pp_hist_collect(struct mdp_histogram_data *hist,
 		return -EPERM;
 
 	mutex_lock(&hist_info->hist_mutex);
+
+	if (PP_LOCAT(hist_info->disp_block) == MDSS_PP_DSPP_CFG)
+		ctl_off = MDSS_MDP_REG_DSPP_HIST_CTL_OFF;
+	else
+		ctl_off = MDSS_MDP_REG_VIG_HIST_CTL_OFF;
+
 	spin_lock_irqsave(&hist_info->hist_lock, flag);
 	if ((hist_info->col_en == 0) ||
 		(hist_info->col_state != HIST_READY)) {
@@ -5049,16 +5063,16 @@ static int pp_hist_collect(struct mdp_histogram_data *hist,
 	spin_unlock_irqrestore(&hist_info->hist_lock, flag);
 	mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON);
 	if (pp_ops[HIST].pp_get_config) {
-		sum = pp_ops[HIST].pp_get_config(ctl_base, hist_info,
+		sum = pp_ops[HIST].pp_get_config(base, hist_info,
 				block, 0);
 	} else {
-		if (block == DSPP)
+/*		if (block == DSPP)
 			v_base = ctl_base +
 				MDSS_MDP_REG_DSPP_HIST_DATA_BASE;
 		else if (block == SSPP_VIG)
 			v_base = ctl_base +
-				MDSS_MDP_REG_VIG_HIST_CTL_BASE;
-		sum = pp_hist_read(v_base, hist_info);
+				MDSS_MDP_REG_VIG_HIST_CTL_BASE;*/
+		sum = pp_hist_read(base, hist_info);
 	}
 	writel_relaxed(0, hist_info->base);
 	mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF);
@@ -5081,7 +5095,7 @@ int mdss_mdp_hist_collect(struct mdp_histogram_data *hist)
 	struct pp_hist_col_info *hist_info;
 	struct pp_hist_col_info *hists[MDSS_MDP_INTF_MAX_LAYERMIXER];
 	u32 dspp_num, disp_num;
-	char __iomem *ctl_base;
+	char __iomem *base;
 	u32 hist_cnt, mixer_id[MDSS_MDP_INTF_MAX_LAYERMIXER];
 	u32 *hist_concat = NULL;
 	u32 *hist_data_addr;
@@ -5129,12 +5143,12 @@ int mdss_mdp_hist_collect(struct mdp_histogram_data *hist)
 		}
 		for (i = 0; i < hist_cnt; i++) {
 			dspp_num = mixer_id[i];
-			ctl_base = mdss_mdp_get_dspp_addr_off(dspp_num);
+			base = mdss_mdp_get_dspp_addr_off(dspp_num);
 			exp_sum = (mdata->mixer_intf[dspp_num].width *
 					mdata->mixer_intf[dspp_num].height);
 			if (ret)
 				temp_ret = ret;
-			ret = pp_hist_collect(hist, hists[i], ctl_base,
+			ret = pp_hist_collect(hist, hists[i], base,
 				exp_sum, DSPP);
 			if (ret)
 				pr_err("hist error: dspp[%d] collect %d\n",
@@ -5230,10 +5244,10 @@ int mdss_mdp_hist_collect(struct mdp_histogram_data *hist)
 				continue;
 			}
 			hist_info = &pipe->pp_res.hist;
-			ctl_base = pipe->base;
+			base = pipe->base;
 			if (ret)
 				temp_ret = ret;
-			ret = pp_hist_collect(hist, hist_info, ctl_base,
+			ret = pp_hist_collect(hist, hist_info, base,
 				exp_sum, SSPP_VIG);
 			if (ret)
 				pr_debug("hist error: pipe[%d] collect: %d\n",
@@ -5388,7 +5402,7 @@ void mdss_mdp_hist_intr_done(u32 isr)
 	if (pp_driver_ops.get_hist_isr_info)
 		pp_driver_ops.get_hist_isr_info(&isr_mask);
 
-	isr &= isr_mask;
+	isr &= HIST_V2_INTR_BIT_MASK;
 	while (isr != 0) {
 		isr_tmp = isr;
 		hist_info = get_hist_info_from_isr(&isr);

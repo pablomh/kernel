@@ -1945,6 +1945,7 @@ static void mdss_hw_rev_init(struct mdss_data_type *mdata)
 void mdss_hw_init(struct mdss_data_type *mdata)
 {
 	struct mdss_mdp_pipe *vig;
+	u32 data = 0;
 
 	mdss_hw_rev_init(mdata);
 
