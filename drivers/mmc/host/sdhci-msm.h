@@ -256,6 +256,9 @@ struct sdhci_msm_host {
 	bool pltfm_init_done;
 	struct sdhci_msm_regs_restore regs_restore;
 	int soc_min_rev;
+#ifdef CONFIG_WIFI_CONTROL_FUNC
+	bool use_for_wifi;
+#endif
 };
 
 extern char *saved_command_line;
