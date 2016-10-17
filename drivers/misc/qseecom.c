@@ -8259,6 +8259,9 @@ static int qseecom_probe(struct platform_device *pdev)
 	qseecom.qsee_perf_client = msm_bus_scale_register_client(
 					qseecom_platform_support);
 
+#if defined(CONFIG_ARCH_MSM8916) || defined(CONFIG_ARCH_MSM8994)
+	qseecom.whitelist_support = false;
+#else
 	rc = qseecom_check_whitelist_feature();
 	if (rc) {
 		rc = -EINVAL;
@@ -8266,7 +8269,7 @@ static int qseecom_probe(struct platform_device *pdev)
 	}
 	pr_warn("qseecom.whitelist_support = %d\n",
 				qseecom.whitelist_support);
-
+#endif
 	if (!qseecom.qsee_perf_client)
 		pr_err("Unable to register bus client\n");
 
