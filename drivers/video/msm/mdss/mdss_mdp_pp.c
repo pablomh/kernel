@@ -405,7 +405,7 @@ static struct mdp_pp_feature_ops *pp_ops;
 static DEFINE_MUTEX(mdss_pp_mutex);
 static struct mdss_pp_res_type *mdss_pp_res;
 
-static u32 pp_hist_read(char __iomem *addr,
+static u32 pp_hist_read(char __iomem *addr, u32 block,
 				struct pp_hist_col_info *hist_info);
 static int pp_hist_setup(u32 *op, u32 block, struct mdss_mdp_mixer *mix,
 				struct pp_sts_type *pp_sts);
@@ -4624,14 +4624,14 @@ gamut_config_exit:
 	return ret;
 }
 
-static u32 pp_hist_read(char __iomem *addr,
+static u32 pp_hist_read(char __iomem *addr, u32 block,
 				struct pp_hist_col_info *hist_info)
 {
 	int i;
 	char *offset_data;
 	u32 sum = 0;
 
-	if (PP_LOCAT(hist_info->disp_block) == MDSS_PP_DSPP_CFG)
+	if (PP_LOCAT(block) == MDSS_PP_DSPP_CFG)
 		offset_data = addr + MDSS_MDP_REG_DSPP_HIST_DATA_BASE;
 	else
 		offset_data = addr + MDSS_MDP_REG_VIG_HIST_DATA_BASE;
@@ -5046,7 +5046,7 @@ static int pp_hist_collect(struct mdp_histogram_data *hist,
 
 	mutex_lock(&hist_info->hist_mutex);
 
-	if (PP_LOCAT(hist_info->disp_block) == MDSS_PP_DSPP_CFG)
+	if (PP_LOCAT(hist->block) == MDSS_PP_DSPP_CFG)
 		ctl_off = MDSS_MDP_REG_DSPP_HIST_CTL_OFF;
 	else
 		ctl_off = MDSS_MDP_REG_VIG_HIST_CTL_OFF;
@@ -5072,7 +5072,7 @@ static int pp_hist_collect(struct mdp_histogram_data *hist,
 		else if (block == SSPP_VIG)
 			v_base = ctl_base +
 				MDSS_MDP_REG_VIG_HIST_CTL_BASE;*/
-		sum = pp_hist_read(base, hist_info);
+		sum = pp_hist_read(base, hist->block, hist_info);
 	}
 	writel_relaxed(0, hist_info->base);
 	mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF);
