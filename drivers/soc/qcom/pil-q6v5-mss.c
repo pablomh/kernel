@@ -203,7 +203,7 @@ static int pil_subsys_init(struct modem_data *drv,
 					struct platform_device *pdev)
 {
 	int ret;
-
+return 0;
 	drv->subsys_desc.name = "modem";
 	drv->subsys_desc.dev = &pdev->dev;
 	drv->subsys_desc.owner = THIS_MODULE;
