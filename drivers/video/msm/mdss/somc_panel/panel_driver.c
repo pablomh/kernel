@@ -35,6 +35,7 @@
 
 #include "../mdss_mdp.h"
 #include "../mdss_dsi.h"
+#include "../mdss_dba_utils.h"
 #include "somc_panels.h"
 
 #define DT_CMD_HDR 		  6
@@ -302,7 +303,12 @@ static void mdss_dsi_panel_set_gpio_seq(
 {
 	int i, rc;
 
-	gpio_direction_output(gpio, 1);
+	rc = gpio_direction_output(gpio, seq[0]);
+	if (rc) {
+		pr_err("%s: FATAL: Cannot set direction for reset GPIO %d\n",
+			__func__, gpio);
+		return;
+	}
 
 	for (i = 0; i + 1 < seq_num; i += 2) {
 		gpio_set_value(gpio, seq[i]);
@@ -370,21 +376,17 @@ static int mdss_dsi_panel_reset_seq(struct mdss_panel_data *pdata, int enable)
 		usleep_range(pw_seq->disp_en_pre * 1000,
 				pw_seq->disp_en_pre * 1000 + 100);
 
-	if (gpio_is_valid(ctrl_pdata->disp_en_gpio))
-		gpio_direction_output(ctrl_pdata->disp_en_gpio, enable);
-		//gpio_set_value(ctrl_pdata->disp_en_gpio, enable);
+	if (gpio_is_valid(ctrl_pdata->disp_en_gpio)) {
+		if (enable)
+			gpio_direction_output(ctrl_pdata->disp_en_gpio, 1);
+		else
+			gpio_set_value(ctrl_pdata->disp_en_gpio, 0);
+	}
 
 	if (pw_seq->disp_en_post)
 		usleep_range(pw_seq->disp_en_post * 1000,
 				pw_seq->disp_en_post * 1000 + 100);
-/*
-	if (gpio_is_valid(ctrl_pdata->mode_gpio) && enable) {
-		if (pinfo->mode_gpio_state == MODE_GPIO_HIGH)
-			gpio_set_value(ctrl_pdata->mode_gpio, 1);
-		else if (pinfo->mode_gpio_state == MODE_GPIO_LOW)
-			gpio_set_value(ctrl_pdata->mode_gpio, 0);
-	}
-*/
+
 	if (gpio_is_valid(ctrl_pdata->mode_gpio) && enable) {
 		if (pinfo->mode_gpio_state == MODE_GPIO_HIGH)
 			gpio_direction_output(ctrl_pdata->mode_gpio, 1);
@@ -398,7 +400,6 @@ static int mdss_dsi_panel_reset_seq(struct mdss_panel_data *pdata, int enable)
 			usleep_range(1000, 1000);
 			if (gpio_is_valid(ctrl_pdata->bklt_en_gpio)) {
 				gpio_direction_output(ctrl_pdata->bklt_en_gpio, 1);
-				//gpio_set_value(ctrl_pdata->bklt_en_gpio, 1);
 				usleep_range(500, 1000);
 			}
 			if (gpio_is_valid(spec_pdata->disp_p5)) {
@@ -421,15 +422,14 @@ static int mdss_dsi_panel_reset_seq(struct mdss_panel_data *pdata, int enable)
 			msleep(150);
 		} else {
 			if (gpio_is_valid(ctrl_pdata->bklt_en_gpio)) {
-				//gpio_set_value(ctrl_pdata->bklt_en_gpio, 0);
-				gpio_direction_output(ctrl_pdata->bklt_en_gpio, 0);
+				gpio_set_value(ctrl_pdata->bklt_en_gpio, 0);
 				usleep_range(1000, 1000);
 			}
-			gpio_direction_output(ctrl_pdata->rst_gpio, 0);
+			gpio_set_value(ctrl_pdata->rst_gpio, 0);
 			usleep_range(1000, 1000);
-			gpio_direction_output(spec_pdata->disp_n5, 0);
+			gpio_set_value(spec_pdata->disp_n5, 0);
 			usleep_range(1000, 1000);
-			gpio_direction_output(spec_pdata->disp_p5, 0);
+			gpio_set_value(spec_pdata->disp_p5, 0);
 			usleep_range(10000, 10000);
 		}
 	} else
@@ -676,22 +676,13 @@ static void mdss_dsi_panel_switch_mode(struct mdss_panel_data *pdata,
 		pr_debug("%s: sending switch commands\n", __func__);
 		pcmds = &pt->switch_cmds;
 		flags |= CMD_REQ_DMA_TPG;
-		flags |= CMD_REQ_COMMIT;
 	} else {
 		pr_warn("%s: Invalid mode switch attempted\n", __func__);
 		return;
 	}
 
-	if ((pdata->panel_info.compression_mode == COMPRESSION_DSC) &&
-			(pdata->panel_info.send_pps_before_switch))
-		mdss_dsi_panel_dsc_pps_send(ctrl_pdata, &pdata->panel_info);
-
 	if (pdata->panel_info.dsi_master == pdata->panel_info.pdest)
 		__mdss_dsi_panel_cmds_send(ctrl_pdata, pcmds, flags);
-
-	if ((pdata->panel_info.compression_mode == COMPRESSION_DSC) &&
-			(!pdata->panel_info.send_pps_before_switch))
-		mdss_dsi_panel_dsc_pps_send(ctrl_pdata, &pdata->panel_info);
 
 	return;
 }
@@ -1419,7 +1410,7 @@ chg_fps:
 	if (pinfo->compression_mode == COMPRESSION_DSC)
 		mdss_dsi_panel_dsc_pps_send(ctrl_pdata, pinfo);
 
-	if (ctrl_pdata->ds_registered)
+	if (ctrl_pdata->ds_registered && pinfo->is_pluggable)
 		mdss_dba_utils_video_on(pinfo->dba_data, pinfo);
 
 end:
@@ -2522,6 +2513,7 @@ void mdss_dsi_panel_dsc_pps_send(struct mdss_dsi_ctrl_pdata *ctrl,
 	mdss_dsi_panel_cmds_send(ctrl, &pcmds);
 }
 
+#ifdef USE_TOPOLOGY_CONFIG_PARAMS
 static int mdss_dsi_parse_dsc_version(struct device_node *np,
 		struct mdss_panel_timing *timing)
 {
@@ -2783,7 +2775,8 @@ end:
 	of_node_put(cfg_np);
 	return rc;
 }
-#endif
+#endif  /* USE_TOPOLOGY_CONFIG_PARAMS */
+#endif  /* KERN318_FEATURESET */
 
 static void mdss_panel_parse_te_params(struct device_node *np,
 			struct mdss_panel_timing *timing)
@@ -3577,7 +3570,7 @@ static int mdss_dsi_panel_timing_from_dt(struct device_node *np,
 	const char *data;
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata;
 	struct mdss_panel_info *pinfo;
-	bool phy_timings_present = false;
+	bool phy_timings_present;
 
 	pinfo = &panel_data->panel_info;
 
@@ -3653,7 +3646,7 @@ static int mdss_dsi_panel_timing_from_dt(struct device_node *np,
 	}
 
 #ifdef KERN318_FEATURESET
-	data = of_get_property(np, "qcom,mdss-dsi-panel-timings-8996", &len);
+	data = of_get_property(np, "qcom,mdss-dsi-panel-timings-phy-v2", &len);
 	if ((!data) || (len != 40)) {
 		pr_debug("%s:%d, Unable to read 8996 Phy lane timing settings",
 		       __func__, __LINE__);
@@ -3706,7 +3699,7 @@ static int  mdss_dsi_panel_config_res_properties(struct device_node *np,
 			"qcom,mdss-dsi-timing-switch-command",
 			"qcom,mdss-dsi-timing-switch-command-state");
 
-#if 0 //def KERN318_FEATURESET
+#ifdef USE_TOPOLOGY_CONFIG_PARAMS
 	rc = mdss_dsi_parse_topology_config(np, pt, panel_data, default_timing);
 	if (rc) {
 		pr_err("%s: parsing compression params failed. rc:%d\n",
@@ -3801,6 +3794,7 @@ exit:
 
 	return rc;
 }
+
 
 int mdss_panel_parse_dt(struct device_node *np,
 			struct mdss_dsi_ctrl_pdata *ctrl_pdata)
@@ -4396,6 +4390,7 @@ error:
 	return rc;
 }
 
+#if 0
 static void mdss_dsi_set_prim_panel(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 {
 	struct mdss_dsi_ctrl_pdata *octrl = NULL;
@@ -4422,7 +4417,7 @@ static void mdss_dsi_set_prim_panel(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 		}
 	}
 }
-
+#endif
 
 int mdss_dsi_panel_init(struct device_node *node,
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata,
