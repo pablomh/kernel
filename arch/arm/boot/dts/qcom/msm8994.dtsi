@@ -2357,6 +2357,7 @@
 		reg = <0xfdc00000 0xff000>;
 		interrupts = <0 44 0>;
 		qcom,hfi = "venus";
+		qcom,firmware-name = "venus";
 		qcom,reg-presets = <0x800D8 0x707>,
 			<0xe0020 0x55555556>,
 			<0xe0024 0x55555556>,
@@ -2380,6 +2381,7 @@
 		venus-core1-supply = <&gdsc_venus_core1>;
 		venus-core2-supply = <&gdsc_venus_core2>;
 		qcom,clock-configs = <0x3 0x0 0x0 0x0 0x0 0x0 0x0>;
+		qcom,allowed-clock-rates = <465000000 240000000 133330000>;
 		qcom,sw-power-collapse;
 		clocks = <&clock_mmss clk_venus0_vcodec0_clk>,
 			<&clock_mmss clk_venus0_core0_vcodec_clk>,
@@ -2405,25 +2407,40 @@
 			<244800 133330000 0x01000414>,
 			<244800 133330000 0x030fcfff>,
 			<244800 133330000 0x04000000>;
+		qcom,clock-freq-tbl {
+			qcom,profile-dec {
+				//qcom,codec-mask = <0x0c000000>;
+				qcom,codec-mask = <0x55555555>;
+				qcom,cycles-per-mb = <392>;
+				qcom,low-power-mode-factor = <65536>;
+			};
+			qcom,profile-enc {
+				//qcom,codec-mask = <0x01000414>;
+				qcom,codec-mask = <0xffffffff>;
+				qcom,cycles-per-mb = <656>;
+				qcom,low-power-mode-factor = <65536>;
+			};
+		};
 		qcom,vidc-iommu-domains {
 			qcom,domain-ns {
 				qcom,vidc-domain-phandle = <&venus_domain_ns>;
-				qcom,vidc-partition-buffer-types = <0x7ff>,
+				qcom,vidc-buffer-types = <0x7ff>,
 					<0x800>;
 			};
 			qcom,domain-sec-bs {
 				qcom,vidc-domain-phandle = <&venus_domain_sec_bitstream>;
-				qcom,vidc-partition-buffer-types = <0x241>;
+				qcom,vidc-buffer-types = <0x241>;
 			};
 			qcom,domain-sec-px {
 				qcom,vidc-domain-phandle = <&venus_domain_sec_pixel>;
-				qcom,vidc-partition-buffer-types = <0x106>;
+				qcom,vidc-buffer-types = <0x106>;
 			};
 			qcom,domain-sec-np {
 				qcom,vidc-domain-phandle = <&venus_domain_sec_non_pixel>;
-				qcom,vidc-partition-buffer-types = <0x480>;
+				qcom,vidc-buffer-types = <0x480>;
 			};
 		};
+#if 0
 		qcom,msm-bus-clients {
 			qcom,msm-bus-client@0 {
 				qcom,msm-bus,name = "venc-core1-ddr";
@@ -2597,6 +2614,24 @@
 				qcom,bus-passive;
 			};
 		};
+#endif
+		venus_bus_ddr {
+			compatible = "qcom,msm-vidc,bus";
+			label = "venus-ddr";
+			qcom,bus-master = <MSM_BUS_MASTER_VIDEO_P0>;
+			qcom,bus-slave = <MSM_BUS_SLAVE_EBI_CH0>;
+			qcom,bus-governor = "msm-vidc-ddr";
+			qcom,bus-range-kbps = <1000 1205248>;
+		};
+
+		arm9_bus_ddr {
+			compatible = "qcom,msm-vidc,bus";
+			label = "venus-arm9-ddr";
+			qcom,bus-master = <MSM_BUS_MASTER_VIDEO_P0>;
+			qcom,bus-slave = <MSM_BUS_SLAVE_EBI_CH0>;
+			qcom,bus-governor = "performance";
+			qcom,bus-range-kbps = <1 1>;
+		}; 
 	};
 
 	i2c_1: i2c@f9923000 {

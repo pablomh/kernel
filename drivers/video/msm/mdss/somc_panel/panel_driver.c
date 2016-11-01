@@ -223,6 +223,12 @@ void __mdss_dsi_panel_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
 	if (pcmds->link_state == DSI_LP_MODE)
 		cmdreq.flags  |= CMD_REQ_LP_MODE;
 
+#ifdef CONFIG_ARCH_MSM8994
+	/* Set HS mode cmd req for clock line recovery purposes on 8994 */
+	else if (pcmds->link_state == DSI_HS_MODE)
+		cmdreq.flags |= CMD_REQ_HS_MODE;
+#endif
+
 	cmdreq.rlen = 0;
 	cmdreq.cb = NULL;
 
