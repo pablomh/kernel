@@ -160,6 +160,23 @@ struct clock_freq_table {
 	u32 count;
 };
 
+#ifdef CONFIG_MSM_VIDC_SUPPORT_IOMMU_V1
+struct iommu_info {
+	const char *name;
+	u32 buffer_type[MAX_BUFFER_TYPES];
+	struct iommu_group *group;
+	int domain;
+	bool is_secure;
+	struct addr_range addr_range[MAX_BUFFER_TYPES];
+	int npartitions;
+};
+
+struct iommu_set {
+	struct iommu_info *iommu_maps;
+	u32 count;
+};
+#endif
+
 struct msm_vidc_platform_resources {
 	phys_addr_t firmware_base;
 	phys_addr_t register_base;
@@ -179,6 +196,9 @@ struct msm_vidc_platform_resources {
 	struct reg_set reg_set;
 	struct addr_set qdss_addr_set;
 	struct buffer_usage_set buffer_usage_set;
+#ifdef CONFIG_MSM_VIDC_USE_OCMEM
+	uint32_t ocmem_size; /* TODO: This is STUPID!! Merge with IMEM!!!!! */
+#endif
 	uint32_t imem_size;
 	enum imem_type imem_type;
 	uint32_t max_load;
@@ -192,6 +212,10 @@ struct msm_vidc_platform_resources {
 	bool sw_power_collapsible;
 	bool sys_idle_indicator;
 	bool slave_side_cp;
+#ifdef CONFIG_MSM_VIDC_SUPPORT_IOMMU_V1
+	bool is_iommu_v1;
+	struct iommu_set iommu_group_set;
+#endif
 	struct list_head context_banks;
 	bool thermal_mitigable;
 	const char *fw_name;

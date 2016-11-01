@@ -24,6 +24,10 @@
 #include "msm_vidc_debug.h"
 #include "msm_vidc_resources.h"
 
+#ifdef CONFIG_MSM_VIDC_SUPPORT_IOMMU_V1
+#include <linux/msm_iommu_domains.h>
+#endif
+
 struct smem_client {
 	int mem_type;
 	void *clnt;
@@ -193,6 +197,93 @@ static void put_device_address(struct smem_client *smem_client,
 	}
 }
 
+#ifdef CONFIG_MSM_VIDC_SUPPORT_IOMMU_V1
+static int get_device_address_v1(struct smem_client *smem_client,
+		struct ion_handle *hndl, unsigned long align,
+		ion_phys_addr_t *iova, unsigned long *buffer_size,
+		unsigned long flags, enum hal_buffer buffer_type)
+{
+	int rc = 0;
+	int domain, partition;
+	struct ion_client *clnt = NULL;
+
+	if (!iova || !buffer_size || !hndl || !smem_client) {
+		dprintk(VIDC_ERR, "Invalid params: %p, %p, %p, %p\n",
+				smem_client, hndl, iova, buffer_size);
+		return -EINVAL;
+	}
+
+	clnt = smem_client->clnt;
+	if (!clnt) {
+		dprintk(VIDC_ERR, "Invalid client\n");
+		return -EINVAL;
+	}
+
+	if (is_iommu_present(smem_client->res)) {
+		rc = msm_smem_get_domain_partition_v1(smem_client, flags,
+				buffer_type, &domain, &partition);
+		if (rc) {
+			dprintk(VIDC_ERR,
+					"Failed to get domain and partition: %d\n",
+					rc);
+			goto mem_domain_get_failed;
+		}
+	}
+
+	if (is_iommu_present(smem_client->res)) {
+		dprintk(VIDC_DBG,
+				"Calling ion_map_iommu - domain: %d, partition: %d\n",
+				domain, partition);
+		trace_msm_smem_buffer_iommu_op_start("MAP", domain, partition,
+			align, *iova, *buffer_size);
+		rc = ion_map_iommu(clnt, hndl, domain, partition, align,
+				0, iova, buffer_size, 0, 0);
+		trace_msm_smem_buffer_iommu_op_end("MAP", domain, partition,
+			align, *iova, *buffer_size);
+	} else {
+		dprintk(VIDC_DBG, "Using physical memory address\n");
+		rc = ion_phys(clnt, hndl, iova, (size_t *)buffer_size);
+	}
+	if (rc) {
+		dprintk(VIDC_ERR, "ion memory map failed - %d\n", rc);
+		goto mem_domain_get_failed;
+	}
+
+	return 0;
+mem_domain_get_failed:
+	return rc;
+}
+
+static void put_device_address_v1(struct smem_client *smem_client,
+	struct ion_handle *hndl, int domain_num, int partition_num, u32 flags)
+{
+	struct ion_client *clnt = NULL;
+
+	if (!hndl || !smem_client) {
+		dprintk(VIDC_WARN, "Invalid params: %p, %p\n",
+				smem_client, hndl);
+		return;
+	}
+
+	clnt = smem_client->clnt;
+	if (!clnt) {
+		dprintk(VIDC_WARN, "Invalid client\n");
+		return;
+	}
+	if (is_iommu_present(smem_client->res)) {
+		dprintk(VIDC_DBG,
+				"Calling ion_unmap_iommu - domain: %d, parition: %d\n",
+				domain_num, partition_num);
+
+		trace_msm_smem_buffer_iommu_op_start("UNMAP", domain_num,
+				partition_num, 0, 0, 0);
+		ion_unmap_iommu(clnt, hndl, domain_num, partition_num);
+		trace_msm_smem_buffer_iommu_op_end("UNMAP", domain_num,
+				partition_num, 0, 0, 0);
+	}
+}
+#endif
+
 static int ion_user_to_kernel(struct smem_client *client, int fd, u32 offset,
 		struct msm_smem *mem, enum hal_buffer buffer_type)
 {
@@ -225,8 +316,13 @@ static int ion_user_to_kernel(struct smem_client *client, int fd, u32 offset,
 	if (ion_flags & ION_FLAG_SECURE)
 		mem->flags |= SMEM_SECURE;
 
+#ifdef CONFIG_MSM_VIDC_SUPPORT_IOMMU_V1
+	rc = get_device_address_v1(client, hndl, align, &iova, &buffer_size,
+					mem->flags, buffer_type);
+#else
 	rc = get_device_address(client, hndl, align, &iova, &buffer_size,
 				mem->flags, buffer_type, &mem->mapping_info);
+#endif
 	if (rc) {
 		dprintk(VIDC_ERR, "Failed to get device address: %d\n", rc);
 		goto fail_device_address;
@@ -362,8 +458,13 @@ static int alloc_ion_mem(struct smem_client *client, size_t size, u32 align,
 		mem->kvaddr = NULL;
 	}
 
+#ifdef CONFIG_MSM_VIDC_SUPPORT_IOMMU_V1
+	rc = get_device_address_v1(client, hndl, align, &iova, &buffer_size,
+					flags, buffer_type);
+#else
 	rc = get_device_address(client, hndl, align, &iova, &buffer_size,
 				flags, buffer_type, &mem->mapping_info);
+#endif
 	if (rc) {
 		dprintk(VIDC_ERR, "Failed to get device address: %d\n",
 			rc);
@@ -392,14 +493,31 @@ fail_shared_mem_alloc:
 
 static void free_ion_mem(struct smem_client *client, struct msm_smem *mem)
 {
+#ifdef CONFIG_MSM_VIDC_SUPPORT_IOMMU_V1
+	int domain, partition, rc;
+#endif
+
 	dprintk(VIDC_DBG,
 		"%s: ion_handle = %pK, device_addr = %pa, size = %#zx, kvaddr = %pK, buffer_type = %#x\n",
 		__func__, mem->smem_priv, &mem->device_addr,
 		mem->size, mem->kvaddr, mem->buffer_type);
+#ifdef CONFIG_MSM_VIDC_SUPPORT_IOMMU_V1
+	rc = msm_smem_get_domain_partition_v1((void *)client, mem->flags,
+			mem->buffer_type, &domain, &partition);
+	if (rc) {
+		dprintk(VIDC_ERR, "Failed to get domain, partition: %d\n", rc);
+		return;
+	}
 
+	if (mem->device_addr)
+		put_device_address_v1(client, mem->smem_priv,
+			domain, partition, mem->flags);
+
+#else
 	if (mem->device_addr)
 		put_device_address(client, mem->smem_priv, mem->flags,
 			&mem->mapping_info, mem->buffer_type);
+#endif
 
 	if (mem->kvaddr)
 		ion_unmap_kernel(client->clnt, mem->smem_priv);
@@ -654,6 +772,46 @@ void msm_smem_delete_client(void *clt)
 	}
 	kfree(client);
 }
+
+#ifdef CONFIG_MSM_VIDC_SUPPORT_IOMMU_V1
+int msm_smem_get_domain_partition_v1(void *clt, u32 flags, enum hal_buffer
+		buffer_type, int *domain_num, int *partition_num)
+{
+	struct smem_client *client = clt;
+	struct iommu_set *iommu_group_set = &client->res->iommu_group_set;
+	int i;
+	int j;
+	bool is_secure = (flags & SMEM_SECURE);
+	struct iommu_info *iommu_map;
+	if (!domain_num || !partition_num) {
+		dprintk(VIDC_DBG, "passed null to get domain partition!\n");
+		return -EINVAL;
+	}
+
+	*domain_num = -1;
+	*partition_num = -1;
+	if (!iommu_group_set) {
+		dprintk(VIDC_DBG, "no iommu group set present!\n");
+		return -ENOENT;
+	}
+
+	for (i = 0; i < iommu_group_set->count; i++) {
+		iommu_map = &iommu_group_set->iommu_maps[i];
+		if (iommu_map->is_secure == is_secure) {
+			for (j = 0; j < iommu_map->npartitions; j++) {
+				if (iommu_map->buffer_type[j] & buffer_type) {
+					*domain_num = iommu_map->domain;
+					*partition_num = j;
+					break;
+				}
+			}
+		}
+	}
+	dprintk(VIDC_DBG, "domain: %d, partition: %d found!\n",
+			*domain_num, *partition_num);
+	return 0;
+}
+#endif
 
 struct context_bank_info *msm_smem_get_context_bank(void *clt,
 			bool is_secure, enum hal_buffer buffer_type)

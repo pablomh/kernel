@@ -35,6 +35,10 @@
 
 #include "vidc_hfi_api.h"
 
+#ifdef MSM_VIDC_USE_OCMEM
+#include <soc/qcom/ocmem.h>
+#endif
+
 #define MSM_VIDC_DRV_NAME "msm_vidc_driver"
 #define MSM_VIDC_VERSION KERNEL_VERSION(0, 0, 1);
 #define MAX_DEBUGFS_NAME 50
@@ -371,4 +375,9 @@ bool msm_smem_compare_buffers(void *clt, int fd, void *priv);
 /* XXX: normally should be in msm_vidc.h, but that's meant for public APIs,
  * whereas this is private */
 int msm_vidc_destroy(struct msm_vidc_inst *inst);
+
+#ifdef CONFIG_MSM_VIDC_SUPPORT_IOMMU_V1
+int msm_smem_get_domain_partition_v1(void *clt, u32 flags, enum hal_buffer
+		buffer_type, int *domain_num, int *partition_num);
+#endif
 #endif

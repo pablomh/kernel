@@ -7,5 +7,21 @@ menuconfig MSM_VIDC_V4L2
 		depends on ARCH_MSM && VIDEO_V4L2
 		select VIDEOBUF2_CORE
 
+config MSM_VIDC_SUPPORT_IOMMU_V1
+	bool "QC VIDC: Support IOMMU v1"
+	depends	on MSM_VIDC_V4L2 && MSM_IOMMU_V1
+	help
+	  This config option enables support for old IOMMU v1.
+	  This IOMMU block is found on old SoC, like MSM8994,
+	  MSM8974, MSM8226.
+
+config MSM_VIDC_USE_OCMEM
+	bool "QC VIDC: Use OCMEM instead of IMEM"
+	depends on MSM_VIDC_V4L2 && MSM_OCMEM
+	help
+	  This config option will make vidc to use OCMEM
+	  instead of IMEM. This is necessary on SoCs which
+	  use OCMEM, like MSM8994, MSM8974, MSM8226.
+
 source "drivers/media/platform/msm/vidc/vmem/Kconfig"
 source "drivers/media/platform/msm/vidc/governors/Kconfig"

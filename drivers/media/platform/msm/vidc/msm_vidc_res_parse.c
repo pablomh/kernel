@@ -23,11 +23,20 @@
 #include "venus_boot.h"
 #include "soc/qcom/secure_buffer.h"
 
+#ifdef CONFIG_MSM_VIDC_SUPPORT_IOMMU_V1
+#include <linux/msm_iommu_domains.h>
+#endif
+
 enum clock_properties {
 	CLOCK_PROP_HAS_SCALING = 1 << 0,
 };
 static int msm_vidc_populate_legacy_context_bank(
 			struct msm_vidc_platform_resources *res);
+
+#ifdef CONFIG_MSM_VIDC_SUPPORT_IOMMU_V1
+static int msm_vidc_setup_iommuv1_groups(
+		struct msm_vidc_platform_resources *res);
+#endif
 
 static size_t get_u32_array_num_elements(struct device_node *np,
 					char *name)
@@ -164,6 +173,14 @@ static inline void msm_vidc_free_clock_voltage_table(
 	res->cv_info_vp9d.count = 0;
 }
 
+#ifdef CONFIG_MSM_VIDC_SUPPORT_IOMMU_V1
+static inline void msm_vidc_free_iommuv1_groups(
+			struct msm_vidc_platform_resources *res)
+{
+	res->iommu_group_set.iommu_maps = NULL;
+}
+#endif
+
 void msm_vidc_free_platform_resources(
 			struct msm_vidc_platform_resources *res)
 {
@@ -180,6 +197,9 @@ void msm_vidc_free_platform_resources(
 	msm_vidc_free_qdss_addr_table(res);
 	msm_vidc_free_bus_vectors(res);
 	msm_vidc_free_buffer_usage_table(res);
+#ifdef CONFIG_MSM_VIDC_SUPPORT_IOMMU_V1
+	msm_vidc_free_iommuv1_groups(res);
+#endif
 }
 
 static int msm_vidc_load_reg_table(struct msm_vidc_platform_resources *res)
@@ -1114,6 +1134,11 @@ int read_platform_resources_from_dt(
 			"qcom,imem-size", &res->imem_size);
 	res->imem_type = read_imem_type(pdev);
 
+#ifdef CONFIG_MSM_VIDC_USE_OCMEM
+	of_property_read_u32(pdev->dev.of_node,
+			"qcom,ocmem-size", &res->ocmem_size);
+#endif
+
 	res->sys_idle_indicator = of_property_read_bool(pdev->dev.of_node,
 			"qcom,enable-idle-indicator");
 
@@ -1215,12 +1240,34 @@ int read_platform_resources_from_dt(
 		goto err_load_max_hw_load;
 	}
 
+#ifdef CONFIG_MSM_VIDC_SUPPORT_IOMMU_V1
+	res->is_iommu_v1 = of_property_read_bool(pdev->dev.of_node,
+			"qcom,vidc-iommu-v1");
+
+	if (res->is_iommu_v1) {
+		rc = msm_vidc_setup_iommuv1_groups(res);
+		if (rc) {
+			dprintk(VIDC_ERR,
+				"Failed to load IOMMUv1 groups: %d\n", rc);
+			goto err_load_iommu_groups;
+		}
+	} else {
+		rc = msm_vidc_populate_legacy_context_bank(res);
+		if (rc) {
+			dprintk(VIDC_ERR,
+				"Failed to setup context banks %d\n", rc);
+			goto err_setup_legacy_cb;
+		}
+	}
+#else
+
 	rc = msm_vidc_populate_legacy_context_bank(res);
 	if (rc) {
 		dprintk(VIDC_ERR,
 			"Failed to setup context banks %d\n", rc);
 		goto err_setup_legacy_cb;
 	}
+#endif
 
 	res->use_non_secure_pil = of_property_read_bool(pdev->dev.of_node,
 			"qcom,use-non-secure-pil");
@@ -1254,6 +1301,9 @@ int read_platform_resources_from_dt(
 			&res->max_secure_inst_count);
 	return rc;
 
+#ifdef CONFIG_MSM_VIDC_SUPPORT_IOMMU_V1
+err_load_iommu_groups:
+#endif
 err_setup_legacy_cb:
 err_load_max_hw_load:
 	msm_vidc_free_allowed_clocks_table(res);
@@ -1513,6 +1563,135 @@ err_setup_cb:
 	list_del(&cb->list);
 	return rc;
 }
+
+
+#ifdef CONFIG_MSM_VIDC_SUPPORT_IOMMU_V1
+static int msm_vidc_setup_iommuv1_groups(
+		struct msm_vidc_platform_resources *res)
+{
+	int rc = 0;
+	struct platform_device *pdev = res->pdev;
+	struct device_node *domains_parent_node = NULL;
+	struct device_node *domains_child_node = NULL;
+	struct iommu_set *iommu_group_set = &res->iommu_group_set;
+	int domain_idx = 0;
+	struct iommu_info *iommu_map;
+	int array_size = 0;
+
+	domains_parent_node = of_find_node_by_name(pdev->dev.of_node,
+				"qcom,vidc-iommu-domains");
+	if (!domains_parent_node) {
+		dprintk(VIDC_DBG, "Node qcom,vidc-iommu-domains not found.\n");
+		return 0;
+	}
+
+	iommu_group_set->count = 0;
+	for_each_child_of_node(domains_parent_node, domains_child_node) {
+		iommu_group_set->count++;
+	}
+
+	if (iommu_group_set->count == 0) {
+		dprintk(VIDC_ERR, "No group present in iommu_domains\n");
+		rc = -ENOENT;
+		goto err_no_of_node;
+	}
+	iommu_group_set->iommu_maps = devm_kzalloc(&pdev->dev,
+			iommu_group_set->count *
+			sizeof(*iommu_group_set->iommu_maps), GFP_KERNEL);
+
+	if (!iommu_group_set->iommu_maps) {
+		dprintk(VIDC_ERR, "Cannot allocate iommu_maps\n");
+		rc = -ENOMEM;
+		goto err_no_of_node;
+	}
+
+	/* set up each context bank */
+	for_each_child_of_node(domains_parent_node, domains_child_node) {
+		struct device_node *ctx_node = of_parse_phandle(
+						domains_child_node,
+						"qcom,vidc-domain-phandle",
+						0);
+		if (domain_idx >= iommu_group_set->count)
+			break;
+
+		iommu_map = &iommu_group_set->iommu_maps[domain_idx];
+		if (!ctx_node) {
+			dprintk(VIDC_ERR, "Unable to parse pHandle\n");
+			rc = -EBADHANDLE;
+			goto err_load_groups;
+		}
+
+		/* domain info from domains.dtsi */
+		rc = of_property_read_string(ctx_node, "label",
+				&(iommu_map->name));
+		if (rc) {
+			dprintk(VIDC_ERR, "Could not find label property\n");
+			goto err_load_groups;
+		}
+
+		dprintk(VIDC_DBG,
+				"domain %d has name %s\n",
+				domain_idx,
+				iommu_map->name);
+
+		if (!of_get_property(ctx_node, "qcom,virtual-addr-pool",
+				&array_size)) {
+			dprintk(VIDC_ERR,
+				"Could not find any addr pool for group : %s\n",
+				iommu_map->name);
+			rc = -EBADHANDLE;
+			goto err_load_groups;
+		}
+
+		iommu_map->npartitions = array_size / sizeof(u32) / 2;
+
+		dprintk(VIDC_DBG,
+				"%d partitions in domain %d",
+				iommu_map->npartitions,
+				domain_idx);
+
+		rc = of_property_read_u32_array(ctx_node,
+				"qcom,virtual-addr-pool",
+				(u32 *)iommu_map->addr_range,
+				iommu_map->npartitions * 2);
+		if (rc) {
+			dprintk(VIDC_ERR,
+				"Could not read addr pool for group : %s (%d)\n",
+				iommu_map->name,
+				rc);
+			goto err_load_groups;
+		}
+
+		iommu_map->is_secure =
+			of_property_read_bool(ctx_node,	"qcom,secure-domain");
+
+		dprintk(VIDC_DBG,
+				"domain %s : secure = %d\n",
+				iommu_map->name,
+				iommu_map->is_secure);
+
+		/* setup partitions and buffer type per partition */
+		rc = of_property_read_u32_array(domains_child_node,
+				"qcom,vidc-buffer-types",
+				iommu_map->buffer_type,
+				iommu_map->npartitions);
+
+		if (rc) {
+			dprintk(VIDC_ERR,
+					"cannot load partition buffertype information (%d)\n",
+					rc);
+			rc = -ENOENT;
+			goto err_load_groups;
+		}
+		domain_idx++;
+	}
+	return rc;
+err_load_groups:
+	msm_vidc_free_iommuv1_groups(res);
+err_no_of_node:
+	return rc;
+}
+#endif
 
 static int msm_vidc_populate_legacy_context_bank(
 			struct msm_vidc_platform_resources *res)

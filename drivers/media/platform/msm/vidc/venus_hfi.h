@@ -27,6 +27,10 @@
 #include "msm_vidc_resources.h"
 #include "hfi_packetization.h"
 
+#ifdef CONFIG_MSM_VIDC_USE_OCMEM
+#include <soc/qcom/ocmem.h>
+#endif
+
 #define HFI_MASK_QHDR_TX_TYPE			0xFF000000
 #define HFI_MASK_QHDR_RX_TYPE			0x00FF0000
 #define HFI_MASK_QHDR_PRI_TYPE			0x0000FF00
@@ -206,10 +210,16 @@ struct imem {
 		phys_addr_t vmem;
 	};
 };
+struct on_chip_mem {
+	struct ocmem_buf *buf;
+	struct notifier_block vidc_ocmem_nb;
+	void *handle;
+};
 
 struct venus_resources {
 	struct msm_vidc_fw fw;
 	struct imem imem;
+	struct on_chip_mem ocmem;
 };
 
 enum venus_hfi_state {
@@ -230,6 +240,7 @@ struct venus_hfi_device {
 	bool power_enabled;
 	struct mutex lock;
 	struct mutex clock_lock;
+	struct mutex resource_lock;
 	msm_vidc_callback callback;
 	struct vidc_mem_addr iface_q_table;
 	struct vidc_mem_addr qdss;
