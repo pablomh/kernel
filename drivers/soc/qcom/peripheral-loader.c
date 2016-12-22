@@ -331,7 +331,8 @@ EXPORT_SYMBOL(pil_do_ramdump);
 int pil_assign_mem_to_subsys(struct pil_desc *desc, phys_addr_t addr,
 							size_t size)
 {
-	int ret;
+	int ret = 0;
+#ifndef CONFIG_MSM_PIL_LEGACY
 	int srcVM[1] = {VMID_HLOS};
 	int destVM[1] = {desc->subsys_vmid};
 	int destVMperm[1] = {PERM_READ | PERM_WRITE};
@@ -340,6 +341,7 @@ int pil_assign_mem_to_subsys(struct pil_desc *desc, phys_addr_t addr,
 	if (ret)
 		pil_err(desc, "%s: failed for %pa address of size %zx - subsys VMid %d rc:%d\n",
 				__func__, &addr, size, desc->subsys_vmid, ret);
+#endif
 	return ret;
 }
 EXPORT_SYMBOL(pil_assign_mem_to_subsys);
@@ -347,7 +349,8 @@ EXPORT_SYMBOL(pil_assign_mem_to_subsys);
 int pil_assign_mem_to_linux(struct pil_desc *desc, phys_addr_t addr,
 							size_t size)
 {
-	int ret;
+	int ret = 0;
+#ifndef CONFIG_MSM_PIL_LEGACY
 	int srcVM[1] = {desc->subsys_vmid};
 	int destVM[1] = {VMID_HLOS};
 	int destVMperm[1] = {PERM_READ | PERM_WRITE | PERM_EXEC};
@@ -364,7 +367,8 @@ EXPORT_SYMBOL(pil_assign_mem_to_linux);
 int pil_assign_mem_to_subsys_and_linux(struct pil_desc *desc,
 						phys_addr_t addr, size_t size)
 {
-	int ret;
+	int ret = 0;
+#ifndef CONFIG_MSM_PIL_LEGACY
 	int srcVM[1] = {VMID_HLOS};
 	int destVM[2] = {VMID_HLOS, desc->subsys_vmid};
 	int destVMperm[2] = {PERM_READ | PERM_WRITE, PERM_READ | PERM_WRITE};
@@ -373,6 +377,7 @@ int pil_assign_mem_to_subsys_and_linux(struct pil_desc *desc,
 	if (ret)
 		pil_err(desc, "%s: failed for %pa address of size %zx - subsys VMid %d rc:%d\n",
 				__func__, &addr, size, desc->subsys_vmid, ret);
+#endif
 
 	return ret;
 }
@@ -382,6 +387,7 @@ int pil_reclaim_mem(struct pil_desc *desc, phys_addr_t addr, size_t size,
 						int VMid)
 {
 	int ret;
+#ifndef CONFIG_MSM_PIL_LEGACY
 	int srcVM[2] = {VMID_HLOS, desc->subsys_vmid};
 	int destVM[1] = {VMid};
 	int destVMperm[1] = {PERM_READ | PERM_WRITE};
@@ -393,6 +399,7 @@ int pil_reclaim_mem(struct pil_desc *desc, phys_addr_t addr, size_t size,
 	if (ret)
 		panic("%s: failed for %pa address of size %zx - subsys VMid %d. Fatal error.\n",
 				__func__, &addr, size, desc->subsys_vmid);
+#endif
 
 	return ret;
 }
