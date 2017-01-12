@@ -146,11 +146,27 @@ static inline u64 arch_counter_get_cntpct(void)
 	return 0;
 }
 
+#ifdef CONFIG_MSM_TIMER_LEAP
+#define L32_BITS	0x00000000FFFFFFFF
+static inline u64 arch_counter_get_cntvct(void)
+{
+	u64 cval;
+
+	isb();
+
+	do {
+		asm volatile("mrs %0, cntvct_el0" : "=r" (cval));
+	} while ((cval & L32_BITS) == L32_BITS);
+
+	return cval;
+}
+#else
 static inline u64 arch_counter_get_cntvct(void)
 {
 	isb();
 	return arch_timer_reg_read_stable(cntvct_el0);
 }
+#endif
 
 static inline int arch_timer_arch_init(void)
 {
