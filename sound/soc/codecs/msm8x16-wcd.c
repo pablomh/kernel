@@ -112,6 +112,25 @@ enum {
 #define VOLTAGE_CONVERTER(value, min_value, step_size)\
 	((value - min_value)/step_size);
 
+enum{
+  PHASE_EVM  = 0x00,
+  PHASE_EVM2 = 0x01,
+  PHASE_EVM3 = 0x02,
+  PHASE_PD1  = 0x10,
+  PHASE_PD2  = 0x11,
+  PHASE_PD3  = 0x12,
+  PHASE_PD4  = 0x13,
+  PHASE_DP   = 0x20,
+  PHASE_Pre_SP=0x29,
+  PHASE_SP   = 0x30,
+  PHASE_AP   = 0x40,
+  PHASE_TP   = 0x50,
+  PHASE_PQ   = 0x60,
+  PHASE_MP   = 0x70,
+  PHASE_END  = 0xFE,
+  PHASE_MAX  = 0XFF,
+};
+
 enum {
 	AIF1_PB = 0,
 	AIF1_CAP,
@@ -3072,6 +3091,11 @@ static int msm8x16_wcd_codec_enable_spk_pa(struct snd_soc_dapm_widget *w,
 	dev_dbg(w->codec->dev, "%s %d %s\n", __func__, event, w->name);
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
+		if (vdd_spkr_gpio >= 0) {
+			gpio_direction_output(vdd_spkr_gpio, 1);
+			dev_err(codec->dev, "%s: Enabled 5V external supply for speaker\n",
+			    __func__);
+		}
 		snd_soc_update_bits(codec,
 			MSM8X16_WCD_A_DIGITAL_CDC_ANA_CLK_CTL, 0x10, 0x10);
 		snd_soc_update_bits(codec,
@@ -3182,6 +3206,11 @@ static int msm8x16_wcd_codec_enable_spk_pa(struct snd_soc_dapm_widget *w,
 				MSM8X16_WCD_A_ANALOG_RX_EAR_CTL, 0x01, 0x00);
 		snd_soc_update_bits(codec,
 			MSM8X16_WCD_A_DIGITAL_CDC_ANA_CLK_CTL, 0x10, 0x00);
+		if (vdd_spkr_gpio >= 0) {
+			gpio_direction_output(vdd_spkr_gpio, 0);
+			dev_err(codec->dev, "%s: disabled 5V external supply for speaker\n",
+			    __func__);
+		}
 		if (get_codec_version(msm8x16_wcd) >= CAJON_2_0)
 			msm8x16_wcd_boost_mode_sequence(codec, SPK_PMD);
 		break;
@@ -4595,6 +4624,11 @@ static int msm8x16_wcd_codec_enable_ear_pa(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
+		if (vdd_spkr_gpio >= 0) {
+			gpio_direction_output(vdd_spkr_gpio, 1);
+			dev_err(codec->dev, "%s: Enabled 5V external supply for ear\n",
+			    __func__);
+		}
 		dev_dbg(w->codec->dev,
 			"%s: Sleeping 20ms after select EAR PA\n",
 			__func__);
@@ -4639,6 +4673,11 @@ static int msm8x16_wcd_codec_enable_ear_pa(struct snd_soc_dapm_widget *w,
 		 */
 		snd_soc_update_bits(codec, MSM8X16_WCD_A_ANALOG_RX_EAR_CTL,
 			    0x80, 0x00);
+		if (vdd_spkr_gpio >= 0) {
+			gpio_direction_output(vdd_spkr_gpio, 0);
+			dev_err(codec->dev, "%s: disabled 5V external supply for ear\n",
+			    __func__);
+		}
 		if (get_codec_version(msm8x16_wcd) < CONGA)
 			snd_soc_update_bits(codec,
 			MSM8X16_WCD_A_ANALOG_RX_HPH_CNP_WG_TIME, 0xFF, 0x16);
