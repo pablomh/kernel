@@ -117,6 +117,9 @@ struct wcd9xxx_micbias_setting {
 	bool bias2_is_headset_only;
 };
 
+extern int vdd_spkr_gpio;
+extern int vdd_rcv_gpio;
+
 enum msm8x16_wcd_pid_current {
 	MSM8X16_WCD_PID_MIC_2P5_UA,
 	MSM8X16_WCD_PID_MIC_5_UA,

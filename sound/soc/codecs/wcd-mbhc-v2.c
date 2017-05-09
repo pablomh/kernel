@@ -57,6 +57,26 @@
 #define WCD_MBHC_SPL_HS_CNT  1
 
 static int det_extn_cable_en;
+
+enum{
+  PHASE_EVM  = 0x00,
+  PHASE_EVM2 = 0x01,
+  PHASE_EVM3 = 0x02,
+  PHASE_PD1  = 0x10,
+  PHASE_PD2  = 0x11,
+  PHASE_PD3  = 0x12,
+  PHASE_PD4  = 0x13,
+  PHASE_DP   = 0x20,
+  PHASE_Pre_SP=0x29,
+  PHASE_SP   = 0x30,
+  PHASE_AP   = 0x40,
+  PHASE_TP   = 0x50,
+  PHASE_PQ   = 0x60,
+  PHASE_MP   = 0x70,
+  PHASE_END  = 0xFE,
+  PHASE_MAX  = 0XFF,
+};
+
 module_param(det_extn_cable_en, int,
 		S_IRUGO | S_IWUSR | S_IWGRP);
 MODULE_PARM_DESC(det_extn_cable_en, "enable/disable extn cable detect");
@@ -2360,6 +2380,13 @@ int wcd_mbhc_init(struct wcd_mbhc *mbhc, struct snd_soc_codec *codec,
 	const char *gnd_switch = "qcom,msm-mbhc-gnd-swh";
 
 	pr_debug("%s: enter\n", __func__);
+
+	ret = of_property_read_u32(card->dev->of_node, hph_switch, &hph_swh);
+	if (ret) {
+		dev_err(card->dev,
+		    "%s: missing %s in dt node\n", __func__, hph_switch);
+		goto err;
+	}
 
 	ret = of_property_read_u32(card->dev->of_node, hph_switch, &hph_swh);
 	if (ret) {
