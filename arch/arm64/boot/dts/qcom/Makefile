@@ -208,6 +208,7 @@ dtb-$(CONFIG_ARCH_SDM670) += sdm670-rumi.dtb \
 	qcs605-external-codec-mtp.dtb \
 	qcs605-lc-mtp.dtb
 endif
+endif
 
 ifeq ($(CONFIG_BUILD_ARM64_DT_OVERLAY),y)
 dtbo-$(CONFIG_ARCH_MSM8953) += msm8953-mtp-overlay.dtbo \
@@ -273,6 +274,12 @@ sdm450-qrd-sku4-overlay.dtbo-base := sdm450-pmi632.dtb \
 sdm632-rumi-overlay.dtbo-base := sdm632.dtb
 
 else
+# MSM8998
+dtb-$(CONFIG_MACH_SONY_MAPLE) += msm8998-v2-yoshino-maple_generic.dtb
+dtb-$(CONFIG_MACH_SONY_MAPLE) += msm8998-v2.1-yoshino-maple_generic.dtb
+dtb-$(CONFIG_MACH_SONY_MAPLE_DSDS) += msm8998-v2-yoshino-maple_dsds.dtb
+dtb-$(CONFIG_MACH_SONY_MAPLE_DSDS) += msm8998-v2.1-yoshino-maple_dsds.dtb
+
 # MSM8996
 dtb-$(CONFIG_MACH_SONY_DORA)            += msm8996-v3.0-pmi8996-tone-dora_generic.dtb
 dtb-$(CONFIG_MACH_SONY_DORA)            += msm8996-v3-pmi8996-tone-dora_generic.dtb
