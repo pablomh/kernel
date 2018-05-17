@@ -1,4 +1,5 @@
-/* Copyright (c) 2007, 2013-2014, 2016-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2007, 2013-2014, 2016, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017, The Linux Foundation. All rights reserved.
  * Copyright (C) 2007 Google Incorporated
  *
  * This software is licensed under the terms of the GNU General Public
@@ -20,8 +21,10 @@
 #include <linux/uaccess.h>
 #include <linux/sched.h>
 #include <linux/mutex.h>
-#include <linux/sync.h>
-#include <linux/sw_sync.h>
+
+#include <sync.h>
+#include <sw_sync.h>
+
 #include "linux/proc_fs.h"
 #include <linux/delay.h>
 
@@ -42,6 +45,9 @@
 #define DISABLE_SOLID_FILL	0x0
 #define BLEND_LATENCY		3
 #define CSC_LATENCY		1
+
+#define CLK_FUDGE_NUM		12
+#define CLK_FUDGE_DEN		10
 
 #define YUV_BW_FUDGE_NUM	10
 #define YUV_BW_FUDGE_DEN	10
@@ -99,9 +105,7 @@ struct ppp_status {
 	struct mutex config_ppp_mutex; /* Only one client configure register */
 	struct msm_fb_data_type *mfd;
 
-	struct kthread_work blit_work;
-	struct kthread_worker kworker;
-	struct task_struct *blit_thread;
+	struct work_struct blit_work;
 	struct blit_req_queue req_q;
 
 	struct sw_sync_timeline *timeline;
@@ -535,8 +539,6 @@ int mdp3_calc_ppp_res(struct msm_fb_data_type *mfd,
 	int i, lcount = 0;
 	struct mdp_blit_req *req;
 	struct bpp_info bpp;
-	u64 old_solid_fill_pixel = 0;
-	u64 new_solid_fill_pixel = 0;
 	u64 src_read_bw = 0;
 	u32 bg_read_bw = 0;
 	u32 dst_write_bw = 0;
@@ -555,14 +557,12 @@ int mdp3_calc_ppp_res(struct msm_fb_data_type *mfd,
 	if (lreq->req_list[0].flags & MDP_SOLID_FILL) {
 		req = &(lreq->req_list[0]);
 		mdp3_get_bpp_info(req->dst.format, &bpp);
-		old_solid_fill_pixel = ppp_res.solid_fill_pixel;
-		new_solid_fill_pixel = req->dst_rect.w * req->dst_rect.h;
-		ppp_res.solid_fill_pixel += new_solid_fill_pixel;
+		ppp_res.solid_fill_pixel += req->dst_rect.w * req->dst_rect.h;
 		ppp_res.solid_fill_byte += req->dst_rect.w * req->dst_rect.h *
 						bpp.bpp_num / bpp.bpp_den;
-		if ((old_solid_fill_pixel >= new_solid_fill_pixel) ||
+		if ((panel_info->yres/2 > req->dst_rect.h) ||
 			(mdp3_res->solid_fill_vote_en)) {
-			pr_debug("Last fill pixels are higher or fill_en %d\n",
+			pr_debug("Solid fill less than H/2 or fill vote %d\n",
 				mdp3_res->solid_fill_vote_en);
 			ATRACE_END(__func__);
 			return 0;
@@ -734,8 +734,7 @@ static int solid_fill_workaround(struct mdp_blit_req *req,
 						struct ppp_blit_op *blit_op)
 {
 	/* Make width 2 when there is a solid fill of width 1, and make
-	 * sure width does not become zero while trying to avoid odd width
-	 */
+	sure width does not become zero while trying to avoid odd width */
 	if (blit_op->dst.roi.width == 1) {
 		if (req->dst_rect.x + 2 > req->dst.width) {
 			pr_err("%s: Unable to handle solid fill of width 1",
@@ -946,24 +945,24 @@ static void mdp3_ppp_tile_workaround(struct ppp_blit_op *blit_op,
 
 		if (((MDP_SCALE_Q_FACTOR * blit_op->dst.roi.height) /
 			blit_op->src.roi.width) > MDP_MAX_X_SCALE_FACTOR) {
-			tmp_v = (MDP_SCALE_Q_FACTOR *
-				blit_op->dst.roi.height) /
-				MDP_MAX_X_SCALE_FACTOR +
-				((MDP_SCALE_Q_FACTOR *
-				blit_op->dst.roi.height) %
-				MDP_MAX_X_SCALE_FACTOR ? 1 : 0);
+				tmp_v = (MDP_SCALE_Q_FACTOR *
+					blit_op->dst.roi.height) /
+					MDP_MAX_X_SCALE_FACTOR +
+					((MDP_SCALE_Q_FACTOR *
+					blit_op->dst.roi.height) %
+					MDP_MAX_X_SCALE_FACTOR ? 1 : 0);
 
 			/* move x location as roi width gets bigger */
 			blit_op->src.roi.x -= tmp_v - blit_op->src.roi.width;
 			blit_op->src.roi.width = tmp_v;
 		} else if (((MDP_SCALE_Q_FACTOR * blit_op->dst.roi.height) /
 			blit_op->src.roi.width) < MDP_MIN_X_SCALE_FACTOR) {
-			tmp_v = (MDP_SCALE_Q_FACTOR *
-				blit_op->dst.roi.height) /
-				MDP_MIN_X_SCALE_FACTOR +
-				((MDP_SCALE_Q_FACTOR *
-				blit_op->dst.roi.height) %
-				MDP_MIN_X_SCALE_FACTOR ? 1 : 0);
+				tmp_v = (MDP_SCALE_Q_FACTOR *
+					blit_op->dst.roi.height) /
+					MDP_MIN_X_SCALE_FACTOR +
+					((MDP_SCALE_Q_FACTOR *
+					blit_op->dst.roi.height) %
+					MDP_MIN_X_SCALE_FACTOR ? 1 : 0);
 			/*
 			 * we don't move x location for continuity of
 			 * source image
@@ -1184,7 +1183,6 @@ int mdp3_ppp_start_blit(struct msm_fb_data_type *mfd,
 void mdp3_ppp_wait_for_fence(struct blit_req_list *req)
 {
 	int i, ret = 0;
-
 	ATRACE_BEGIN(__func__);
 	/* buf sync */
 	for (i = 0; i < req->acq_fen_cnt; i++) {
@@ -1210,7 +1208,6 @@ void mdp3_ppp_wait_for_fence(struct blit_req_list *req)
 void mdp3_ppp_signal_timeline(struct blit_req_list *req)
 {
 	sw_sync_timeline_inc(ppp_stat->timeline, 1);
-	MDSS_XLOG(ppp_stat->timeline->value, ppp_stat->timeline_value);
 	req->last_rel_fence = req->cur_rel_fence;
 	req->cur_rel_fence = 0;
 }
@@ -1267,7 +1264,6 @@ static int mdp3_ppp_handle_buf_sync(struct blit_req_list *req,
 
 	req->cur_rel_sync_pt = sw_sync_pt_create(ppp_stat->timeline,
 			ppp_stat->timeline_value++);
-	MDSS_XLOG(ppp_stat->timeline_value);
 	if (req->cur_rel_sync_pt == NULL) {
 		pr_err("%s: cannot create sync point\n", __func__);
 		ret = -ENOMEM;
@@ -1297,7 +1293,6 @@ buf_sync_err_1:
 void mdp3_ppp_req_push(struct blit_req_queue *req_q, struct blit_req_list *req)
 {
 	int idx = req_q->push_idx;
-
 	req_q->req[idx] = *req;
 	req_q->count++;
 	req_q->push_idx = (req_q->push_idx + 1) % MDP3_PPP_MAX_LIST_REQ;
@@ -1306,7 +1301,6 @@ void mdp3_ppp_req_push(struct blit_req_queue *req_q, struct blit_req_list *req)
 struct blit_req_list *mdp3_ppp_next_req(struct blit_req_queue *req_q)
 {
 	struct blit_req_list *req;
-
 	if (req_q->count == 0)
 		return NULL;
 	req = &req_q->req[req_q->pop_idx];
@@ -1330,8 +1324,9 @@ static void mdp3_free_bw_wq_handler(struct work_struct *work)
 	struct msm_fb_data_type *mfd = ppp_stat->mfd;
 
 	mutex_lock(&ppp_stat->config_ppp_mutex);
-	if (ppp_stat->bw_on)
+	if (ppp_stat->bw_on) {
 		mdp3_ppp_turnon(mfd, 0);
+	}
 	mutex_unlock(&ppp_stat->config_ppp_mutex);
 }
 
@@ -1492,7 +1487,7 @@ static bool is_blit_optimization_possible(struct blit_req_list *req, int indx)
 	return status;
 }
 
-static void mdp3_ppp_blit_handler(struct kthread_work *work)
+static void mdp3_ppp_blit_wq_handler(struct work_struct *work)
 {
 	struct msm_fb_data_type *mfd = ppp_stat->mfd;
 	struct blit_req_list *req;
@@ -1588,7 +1583,6 @@ int mdp3_ppp_parse_req(void __user *p,
 	struct blit_req_queue *req_q = &ppp_stat->req_q;
 	struct sync_fence *fence = NULL;
 	int count, rc, idx, i;
-
 	count = req_list_header->count;
 
 	mutex_lock(&ppp_stat->req_mutex);
@@ -1661,7 +1655,7 @@ int mdp3_ppp_parse_req(void __user *p,
 
 	mdp3_ppp_req_push(req_q, req);
 	mutex_unlock(&ppp_stat->req_mutex);
-	kthread_queue_work(&ppp_stat->kworker, &ppp_stat->blit_work);
+	schedule_work(&ppp_stat->blit_work);
 	if (!async) {
 		/* wait for release fence */
 		rc = sync_fence_wait(fence,
@@ -1688,38 +1682,23 @@ parse_err_1:
 
 int mdp3_ppp_res_init(struct msm_fb_data_type *mfd)
 {
-	int rc;
-	struct sched_param param = {.sched_priority = 16};
 	const char timeline_name[] = "mdp3_ppp";
-
 	ppp_stat = kzalloc(sizeof(struct ppp_status), GFP_KERNEL);
-	if (!ppp_stat)
+	if (!ppp_stat) {
+		pr_err("%s: kzalloc failed\n", __func__);
 		return -ENOMEM;
+	}
 
 	/*Setup sync_pt timeline for ppp*/
 	ppp_stat->timeline = sw_sync_timeline_create(timeline_name);
 	if (ppp_stat->timeline == NULL) {
 		pr_err("%s: cannot create time line\n", __func__);
 		return -ENOMEM;
+	} else {
+		ppp_stat->timeline_value = 1;
 	}
-	ppp_stat->timeline_value = 1;
 
-	init_kthread_worker(&ppp_stat->kworker);
-	init_kthread_work(&ppp_stat->blit_work, mdp3_ppp_blit_handler);
-	ppp_stat->blit_thread = kthread_run(kthread_worker_fn,
-					&ppp_stat->kworker,
-					"mdp3_ppp");
-
-	if (IS_ERR(ppp_stat->blit_thread)) {
-		rc = PTR_ERR(ppp_stat->blit_thread);
-		pr_err("ERROR: unable to start ppp blit thread,err = %d\n",
-							rc);
-		ppp_stat->blit_thread = NULL;
-		return rc;
-	}
-	if (sched_setscheduler(ppp_stat->blit_thread, SCHED_FIFO, &param))
-		pr_warn("set priority failed for mdp3 blit thread\n");
-
+	INIT_WORK(&ppp_stat->blit_work, mdp3_ppp_blit_wq_handler);
 	INIT_WORK(&ppp_stat->free_bw_work, mdp3_free_bw_wq_handler);
 	init_completion(&ppp_stat->pop_q_comp);
 	mutex_init(&ppp_stat->req_mutex);

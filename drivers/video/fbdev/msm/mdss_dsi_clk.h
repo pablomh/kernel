@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2016, 2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -36,6 +36,7 @@ enum mdss_dsi_link_clk_type {
 	MDSS_DSI_LINK_ESC_CLK,
 	MDSS_DSI_LINK_BYTE_CLK,
 	MDSS_DSI_LINK_PIX_CLK,
+	MDSS_DSI_LINK_BYTE_INTF_CLK,
 	MDSS_DSI_LINK_CLK_MAX,
 };
 
@@ -96,6 +97,7 @@ typedef int (*pre_clockon_cb)(void *priv,
 
 struct mdss_dsi_core_clk_info {
 	struct clk *mdp_core_clk;
+	struct clk *mnoc_clk;
 	struct clk *ahb_clk;
 	struct clk *axi_clk;
 	struct clk *mmss_misc_ahb_clk;
@@ -107,6 +109,7 @@ struct mdss_dsi_link_clk_info {
 	struct clk *esc_clk;
 	struct clk *byte_clk;
 	struct clk *pixel_clk;
+	struct clk *byte_intf_clk;
 };
 
 struct dsi_panel_clk_ctrl {
