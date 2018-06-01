@@ -27,6 +27,9 @@ extern const struct mpm_pin mpm_msm8953_gpio_chip_data[];
 extern const struct mpm_pin mpm_msm8937_gic_chip_data[];
 extern const struct mpm_pin mpm_msm8937_gpio_chip_data[];
 
+extern const struct mpm_pin mpm_msm8956_gic_chip_data[];
+extern const struct mpm_pin mpm_msm8956_gpio_chip_data[];
+
 extern const struct mpm_pin mpm_msm8996_gic_chip_data[];
 extern const struct mpm_pin mpm_msm8996_gpio_chip_data[];
 
