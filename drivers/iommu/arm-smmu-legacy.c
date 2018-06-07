@@ -2335,6 +2335,7 @@ static int arm_smmu_attach_dev(struct iommu_domain *domain, struct device *dev)
 		ret = arm_smmu_enable_clocks(smmu);
 		if (ret)
 			goto err_disable_regulators;
+		if (0)
 		arm_smmu_device_reset(smmu);
 		arm_smmu_impl_def_programming(smmu);
 	} else {
