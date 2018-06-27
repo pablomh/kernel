@@ -593,10 +593,9 @@ static int __nd_alloc_stack(struct nameidata *nd)
 static bool path_connected(const struct path *path)
 {
 	struct vfsmount *mnt = path->mnt;
-	struct super_block *sb = mnt->mnt_sb;
 
-	/* Bind mounts and multi-root filesystems can have disconnected paths */
-	if (!(sb->s_iflags & SB_I_MULTIROOT) && (mnt->mnt_root == sb->s_root))
+	/* Only bind mounts can have disconnected paths */
+	if (mnt->mnt_root == mnt->mnt_sb->s_root)
 		return true;
 
 	return is_subdir(path->dentry, mnt->mnt_root);
@@ -1136,6 +1135,9 @@ static int follow_automount(struct path *path, struct nameidata *nd,
 			   LOOKUP_OPEN | LOOKUP_CREATE | LOOKUP_AUTOMOUNT)) &&
 	    path->dentry->d_inode)
 		return -EISDIR;
+
+	if (path->dentry->d_sb->s_user_ns != &init_user_ns)
+		return -EACCES;
 
 	nd->total_link_count++;
 	if (nd->total_link_count >= 40)
@@ -2151,9 +2153,6 @@ static const char *path_init(struct nameidata *nd, unsigned flags)
 	int retval = 0;
 	const char *s = nd->name->name;
 
-	if (!*s)
-		flags &= ~LOOKUP_RCU;
-
 	nd->last_type = LAST_ROOT; /* if there are only slashes... */
 	nd->flags = flags | LOOKUP_JUMPED | LOOKUP_PARENT;
 	nd->depth = 0;
@@ -2904,6 +2903,11 @@ int vfs_create2(struct vfsmount *mnt, struct inode *dir, struct dentry *dentry,
 	if (error)
 		return error;
 	error = dir->i_op->create(dir, dentry, mode, want_excl);
+	if (error)
+		return error;
+	error = security_inode_post_create(dir, dentry, mode);
+	if (error)
+		return error;
 	if (!error)
 		fsnotify_create(dir, dentry);
 	return error;
@@ -3719,6 +3723,13 @@ int vfs_mknod2(struct vfsmount *mnt, struct inode *dir, struct dentry *dentry, u
 		return error;
 
 	error = dir->i_op->mknod(dir, dentry, mode, dev);
+	if (error)
+		return error;
+
+	error = security_inode_post_create(dir, dentry, mode);
+	if (error)
+		return error;
+
 	if (!error)
 		fsnotify_create(dir, dentry);
 	return error;
