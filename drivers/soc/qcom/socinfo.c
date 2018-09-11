@@ -319,6 +319,9 @@ static struct msm_soc_info cpu_of_id[] = {
 	/* sdmmagpie ID */
 	[365] = {MSM_CPU_SDMMAGPIE, "SDMMAGPIE"},
 
+	/* trinket ID */
+	[394] = {MSM_CPU_TRINKET, "TRINKET"},
+
 	/* kona ID */
 	[356] = {MSM_CPU_KONA, "KONA"},
 	[455] = {MSM_CPU_KONA, "KONA"},
@@ -1274,6 +1277,10 @@ static void * __init setup_dummy_socinfo(void)
 	} else if (early_machine_is_sdmmagpie()) {
 		dummy_socinfo.id = 365;
 		strlcpy(dummy_socinfo.build_id, "sdmmagpie - ",
+		sizeof(dummy_socinfo.build_id));
+	} else if (early_machine_is_trinket()) {
+		dummy_socinfo.id = 394;
+		strlcpy(dummy_socinfo.build_id, "trinket - ",
 		sizeof(dummy_socinfo.build_id));
 	} else if (early_machine_is_bengal_iot()) {
 		dummy_socinfo.id = 469;
