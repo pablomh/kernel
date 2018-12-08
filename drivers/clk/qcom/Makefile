@@ -91,6 +91,7 @@ obj-$(CONFIG_SM_DISPCC_LITO) += dispcc-lito.o
 obj-$(CONFIG_SM_GCC_BENGAL) += gcc-bengal.o
 obj-$(CONFIG_SM_GCC_LITO) += gcc-lito.o
 obj-$(CONFIG_SM_GCC_TRINKET) += gcc-trinket.o
+obj-$(CONFIG_SM_GPUCC_TRINKET) += gpucc-trinket.o
 obj-$(CONFIG_SM_GPUCC_BENGAL) += gpucc-bengal.o
 obj-$(CONFIG_SM_GPUCC_LITO) += gpucc-lito.o
 obj-$(CONFIG_SM_NPUCC_LITO) += npucc-lito.o
