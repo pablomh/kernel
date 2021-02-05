@@ -1,9 +1,17 @@
 ifeq ($(CONFIG_BUILD_ARM64_DT_OVERLAY),y)
+# TRINKET - SOMC seine
+dtbo-$(CONFIG_MACH_SONY_PDX201) += \
+	trinket-seine-pdx201_generic-overlay.dtbo
+
+# KONA - SOMC edo
 dtbo-$(CONFIG_MACH_SONY_PDX203) += \
 	kona-edo-pdx203_generic-overlay.dtbo
 dtbo-$(CONFIG_MACH_SONY_PDX206) += \
 	kona-edo-pdx206_generic-overlay.dtbo
 
+ifeq ($(CONFIG_MACH_SONY_PDX201),y)
+trinket-seine-pdx201_generic-overlay.dtbo-base := ../qcom/trinket.dtb
+endif
 ifeq ($(CONFIG_MACH_SONY_PDX203),y)
 kona-edo-pdx203_generic-overlay.dtbo-base := ../qcom/kona.dtb ../qcom/kona-v2.dtb ../qcom/kona-v2.1.dtb
 endif
@@ -12,6 +20,8 @@ kona-edo-pdx206_generic-overlay.dtbo-base := ../qcom/kona.dtb ../qcom/kona-v2.dt
 endif
 
 else
+dtb-$(CONFIG_MACH_SONY_PDX201) += \
+	trinket-seine-pdx201_generic.dtb
 dtb-$(CONFIG_MACH_SONY_PDX203) += \
 	kona-edo-pdx203_generic.dtb \
 	kona-v2-edo-pdx203_generic.dtb \
