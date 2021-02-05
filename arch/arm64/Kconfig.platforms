@@ -150,6 +150,24 @@ config ARCH_QCOM
 	help
 	  This enables support for the ARMv8 based Qualcomm chipsets.
 
+config ARCH_SONY_SEINE
+	bool "Sony Mobile Seine platform"
+	depends on ARCH_TRINKET
+	help
+	  Support for the SONY Mobile Seine platform
+	  is based on QCOM TRINKET chipset.
+	  you enable this config,
+	  use SONY Mobile device tree.
+
+config MACH_SONY_PDX201
+	bool "Sony Mobile PDX201"
+	depends on ARCH_SONY_SEINE
+	help
+	  Support for the SONY Mobile PDX201 device
+	  which is based on SONY Seine platform.
+	  If you enable this config,
+	  please use SONY Mobile device tree.
+
 config ARCH_KONA
 	bool "Enable Support for Qualcomm Technologies, Inc. KONA"
 	depends on ARCH_QCOM
